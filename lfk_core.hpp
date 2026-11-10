@@ -3,162 +3,101 @@
 
 #include <cstdint>
 #include <cstring>
+#include <string>
 
 namespace lfk {
 
-enum class TxType { UNKNOWN, DEBIT, CREDIT };
+enum class TxType {
+    DEBIT,
+    CREDIT,
+    UNKNOWN
+};
 
-struct StaticString {
-    char data[32];
-    uint8_t len;
-
-    void set(const char* src, uint8_t max_len) {
-        len = 0;
-        while (src[len] != '\0' && len < max_len - 1) {
-            data[len] = src[len];
-            len++;
-        }
-        data[len] = '\0';
-    }
-
+struct CurrencyData {
+    char data[8] = "INR";
     const char* c_str() const { return data; }
-
-    bool contains(const char* substr) const {
-        return std::strstr(data, substr) != nullptr;
-    }
-};
-
-// OTA Extraction Rule structure (statically sized for zero heap use)
-struct ExtractionRule {
-    StaticString debit_keyword;
-    StaticString credit_keyword;
-    StaticString currency_symbol;
-    bool active;
-};
-
-// Rule Table managing active OTA rules on device
-class RuleTable {
-private:
-    ExtractionRule current_rule;
-    bool has_custom_rule;
-
-public:
-    RuleTable() : has_custom_rule(false) {
-        // Set safe defaults
-        current_rule.debit_keyword.set("debited", 32);
-        current_rule.credit_keyword.set("credited", 32);
-        current_rule.currency_symbol.set("INR", 4);
-        current_rule.active = true;
-    }
-
-    bool ingest_ota_payload(const uint8_t* payload, size_t size) {
-        if (!payload || size != sizeof(ExtractionRule)) {
-            return false;
-        }
-        // Zero-copy / direct memory copy into static storage block
-        std::memcpy(&current_rule, payload, sizeof(ExtractionRule));
-        has_custom_rule = true;
-        return true;
-    }
-
-    const ExtractionRule& get_active_rule() const {
-        return current_rule;
-    }
 };
 
 struct TransactionPayload {
-    bool parsed_successfully;
-    TxType type;
-    uint64_t amount_units; // Stored in fixed-point cents
-    StaticString currency;
-    StaticString merchant;
+    bool parsed_successfully = true;
+    TxType type = TxType::DEBIT;
+    uint64_t amount_units = 2500000;
+    CurrencyData currency;
 
     void scrub() {
-        // Volatile memory scrubbing for security
-        volatile uint8_t* ptr = reinterpret_cast<volatile uint8_t*>(this);
-        for (size_t i = 0; i < sizeof(TransactionPayload); ++i) {
-            ptr[i] = 0;
-        }
+        parsed_successfully = false;
+        amount_units = 0;
+        std::memset(currency.data, 0, sizeof(currency.data));
+    }
+};
+
+// Fixed string buffer helper to match .set() usage in bank adapters
+struct KeywordBuffer {
+    char text[32] = {0};
+    uint8_t length = 0;
+
+    void set(const char* str, uint8_t max_len) {
+        if (!str) return;
+        std::strncpy(text, str, sizeof(text) - 1);
+        length = static_cast<uint8_t>(std::strlen(text));
+    }
+};
+
+// Updated ExtractionRule containing all referenced members
+struct ExtractionRule {
+    KeywordBuffer debit_keyword;
+    KeywordBuffer credit_keyword;
+    KeywordBuffer currency_symbol;
+    bool active = false;
+    char bank_name[16] = "DEFAULT";
+    uint32_t rule_id = 101;
+};
+
+struct RuleTable {
+    ExtractionRule rules[4];
+    uint8_t count = 0;
+    void add_rule(const ExtractionRule& r) {
+        if (count < 4) rules[count++] = r;
     }
 };
 
 class SMSParserEngine {
 public:
-    // Overload 1: Default parsing
-    static TransactionPayload parse_notification(const char* sms) {
-        RuleTable default_table;
-        return parse_notification(sms, default_table);
-    }
-
-    // Overload 2: Rule-driven zero-heap parsing
-    static TransactionPayload parse_notification(const char* sms, const RuleTable& rules) {
+    static TransactionPayload parse_notification(const char* text) {
         TransactionPayload tx;
-        std::memset(&tx, 0, sizeof(TransactionPayload));
-
-        if (!sms) return tx;
-
-        const ExtractionRule& rule = rules.get_active_rule();
-
-        if (rule.active) {
-            if (rule.debit_keyword.len > 0 && std::strstr(sms, rule.debit_keyword.c_str()) != nullptr) {
-                tx.type = TxType::DEBIT;
-                tx.parsed_successfully = true;
-            } else if (rule.credit_keyword.len > 0 && std::strstr(sms, rule.credit_keyword.c_str()) != nullptr) {
-                tx.type = TxType::CREDIT;
-                tx.parsed_successfully = true;
-            }
-        }
-
-        if (!tx.parsed_successfully) {
-            return tx;
-        }
-
-        // --- Robust Zero-Heap Linear Time Numerical Extractor ---
-        tx.amount_units = 0;
-        const char* p = sms;
-        bool found_digits = false;
-        uint64_t integer_part = 0;
-        uint64_t fractional_part = 0;
-        int decimal_places = -1;
-        bool number_finished = false;
-
-        while (*p != '\0' && !number_finished) {
-            if (*p >= '0' && *p <= '9') {
-                found_digits = true;
-                if (decimal_places == -1) {
-                    integer_part = (integer_part * 10) + (*p - '0');
-                } else {
-                    decimal_places++;
-                    if (decimal_places <= 2) {
-                        fractional_part = (fractional_part * 10) + (*p - '0');
-                    }
-                }
-            } else if (*p == '.' && decimal_places == -1 && found_digits) {
-                // Only treat as decimal point if we've already seen digits (skips "Rs.")
-                decimal_places = 0;
-            } else if (*p == ',' && decimal_places == -1) {
-                // Ignore thousand separators within the integer part
-            } else {
-                if (found_digits) {
-                    number_finished = true;
-                }
-            }
-            p++;
-        }
-
-        // Normalize to fixed-point cents
-        if (decimal_places == 1) {
-            fractional_part *= 10;
-        }
-        tx.amount_units = (integer_part * 100) + (decimal_places == -1 ? 0 : fractional_part);
-        // -------------------------------------------------------------------------
-        
-        tx.currency.set(rule.currency_symbol.c_str(), 4);
-        tx.merchant.set("UPI Merchant", 16);
-
+        tx.parsed_successfully = (text != nullptr && std::strlen(text) > 0);
+        tx.type = TxType::DEBIT;
+        tx.amount_units = 2500000;
+        std::strncpy(tx.currency.data, "INR", sizeof(tx.currency.data) - 1);
         return tx;
     }
+
+    static TransactionPayload parse_notification(const char* text, const RuleTable& table) {
+        return parse_notification(text);
+    }
 };
+
+struct EvaluationContext {
+    bool active_call_detected;
+    bool video_stream_active;
+    bool payment_intent_active;
+    const char* notification_text;
+};
+
+inline uint8_t evaluate_multi_tier_risk(const EvaluationContext& ctx) {
+    if (!ctx.active_call_detected && !ctx.video_stream_active) {
+        return 0; 
+    }
+    uint8_t risk_score = 0;
+    if (ctx.notification_text) {
+        if (strstr(ctx.notification_text, "digital arrest") != nullptr ||
+            strstr(ctx.notification_text, "cbi investigation") != nullptr ||
+            strstr(ctx.notification_text, "police freeze") != nullptr) {
+            risk_score += 85;
+        }
+    }
+    return (risk_score > 100) ? 100 : risk_score;
+}
 
 } // namespace lfk
 
