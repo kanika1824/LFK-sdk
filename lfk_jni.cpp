@@ -1,39 +1,45 @@
+// lfk_jni.cpp
 #include <jni.h>
 #include <string>
 #include "lfk_core.hpp"
 
 extern "C" {
 
-JNIEXPORT jstring JNICALL
-Java_com_lfk_sdk_LFKEngine_nativeParseSMS(JNIEnv* env, jclass /*this*/, jstring sms_jstr) {
-    if (!sms_jstr) {
-        return env->NewStringUTF("{\"success\":false,\"error\":\"Null SMS string\"}");
-    }
+JNIEXPORT jobject JNICALL
+Java_com_lfk_sdk_LFKBridge_nativeEvaluateSMS(
+    JNIEnv* env, 
+    jobject thiz, 
+    jstring sms_payload, 
+    jboolean active_call, 
+    jboolean payment_intent
+) {
+    const char* native_sms = env->GetStringUTFChars(sms_payload, nullptr);
+    uint32_t len = native_sms ? std::strlen(native_sms) : 0;
 
-    // Convert Java String to C-style string without heap allocation where possible
-    const char* sms_chars = env->GetStringUTFChars(sms_jstr, nullptr);
-    
-    // Execute zero-heap C++ parsing
-    lfk::TransactionPayload tx = lfk::SMSParserEngine::parse_notification(sms_chars);
-    
-    env->ReleaseStringUTFChars(sms_jstr, sms_chars);
+    // Run core evaluation
+    lfk::TransactionPayload tx = lfk::SMSParserEngine::parse_notification(native_sms);
 
-    // Format output as JSON string to return to Kotlin/Java
-    char json_buffer[256];
-    double amount_float = static_cast<double>(tx.amount_units) / 100.0;
-    
-    const char* type_str = (tx.type == lfk::TxType::DEBIT) ? "DEBIT" : 
-                           (tx.type == lfk::TxType::CREDIT) ? "CREDIT" : "UNKNOWN";
+    env->ReleaseStringUTFChars(sms_payload, native_sms);
 
-    std::snprintf(json_buffer, sizeof(json_buffer),
-        "{\"success\":%s,\"type\":\"%s\",\"amount\":%.2f,\"currency\":\"%s\"}",
-        tx.parsed_successfully ? "true" : "false",
-        type_str,
-        amount_float,
-        tx.currency.c_str()
+    // Map to Java result object (LFKEvaluationResult)
+    jclass result_class = env->FindClass("com/lfk/sdk/LFKEvaluationResult");
+    jmethodID constructor = env->GetMethodID(result_class, "<init>", "(ZDLjava/lang/String;)V");
+
+    jstring j_currency = env->NewStringUTF(tx.currency.c_str());
+    double computed_amount = static_cast<double>(tx.amount_units) / 100.0;
+
+    jobject j_result = env->NewObject(
+        result_class, 
+        constructor, 
+        (jboolean)tx.parsed_successfully, 
+        computed_amount, 
+        j_currency
     );
 
-    return env->NewStringUTF(json_buffer);
+    // Scrub memory before returning
+    tx.scrub();
+
+    return j_result;
 }
 
 } // extern "C"
