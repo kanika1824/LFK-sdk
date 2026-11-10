@@ -4,205 +4,204 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LFK Security Kernel — On-Device Coercion Defense</title>
-    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: {
-                        sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
-                        mono: ['JetBrains Mono', 'ui-monospace', 'monospace']
-                    }
-                }
-            }
-        };
+        tailwind.config = { theme: { extend: { fontFamily: { sans: ['Manrope','system-ui','sans-serif'], mono: ['JetBrains Mono','ui-monospace','monospace'] } } } };
     </script>
     <style>
-        body {
-            background-color: #080c14;
-            color: #f1f5f9;
-            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
-            background-image: 
-                radial-gradient(1000px 500px at 80% -100px, rgba(79, 70, 229, 0.15) 0%, transparent 70%),
-                radial-gradient(800px 400px at 0% 100%, rgba(14, 165, 233, 0.1) 0%, transparent 70%);
-            background-attachment: fixed;
-        }
+        :root { --ink:#0f1b2d; --muted:#5b6b82; --line:#e3e9f1; --teal:#4f46e5; --teal-soft:#eef2ff; }
+        body { background:#f4f7fb; color:var(--ink); font-family:'Manrope',system-ui,sans-serif;
+            background-image: radial-gradient(900px 420px at 85% -80px, #dbe7ff 0%, transparent 70%), radial-gradient(700px 380px at -5% 0, #efe4fb 0%, transparent 70%);
+            background-repeat:no-repeat; }
+        .card { background:#fff; border:1px solid var(--line); border-radius:20px; box-shadow:0 1px 2px rgba(15,27,45,.04), 0 12px 32px -16px rgba(15,27,45,.12); transition:box-shadow .25s, transform .25s; }
+        .card:hover { box-shadow:0 1px 2px rgba(15,27,45,.04), 0 18px 40px -16px rgba(15,27,45,.18); }
+        .btn { transition:transform .15s, box-shadow .2s, background-color .2s; }
+        .btn:hover { transform:translateY(-1px); }
+        .btn:active { transform:translateY(0) scale(.99); }
+        .btn:focus-visible, select:focus-visible, textarea:focus-visible { outline:3px solid #a5b4fc; outline-offset:2px; }
+        .field { background:#f8fafc; border:1px solid var(--line); border-radius:14px; transition:border-color .2s, box-shadow .2s, background .2s; }
+        .field:focus { outline:none; background:#fff; border-color:var(--teal); box-shadow:0 0 0 4px rgba(79,70,229,.16); }
 
-        .glass-panel {
-            background: rgba(15, 23, 42, 0.65);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .btn-primary:hover {
-            box-shadow: 0 0 25px rgba(79, 70, 229, 0.45);
-            transform: translateY(-1px);
-        }
-
-        .btn-secondary {
-            background: rgba(30, 41, 59, 0.8);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .btn-secondary:hover {
-            background: rgba(51, 65, 85, 0.9);
-            border-color: rgba(255, 255, 255, 0.25);
-            transform: translateY(-1px);
-        }
-
-        .field-dark {
-            background: rgba(2, 6, 23, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            transition: all 0.2s ease;
-        }
-        .field-dark:focus {
-            outline: none;
-            border-color: #6366f1;
-            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
-            background: rgba(2, 6, 23, 0.95);
-        }
-
-        /* Animations */
-        @keyframes popIn {
-            from { opacity: 0; transform: translateY(8px) scale(0.99); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        .animate-pop { animation: popIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-    </style>
+        /* Re-skin the status pill and result panel (JS sets dark-theme classes; these keep them readable on light) */
+        #engine-status.text-emerald-400 { background:#e0f2fe !important; color:#0369a1 !important; border-color:#bae6fd !important; animation:pop .5s ease; }
+        #engine-status .bg-emerald-400 { background:#0ea5e9 !important; }
+        #result-box { margin-top:0 !important; background:#f8fafc !important; border:1px solid var(--line) !important; color:#475569 !important; border-radius:16px !important; padding:1.25rem !important; line-height:1.7; font-size:12.5px !important; animation:pop .35s ease; }
+        #result-box[class*="rose-950"] { background:#fff1f2 !important; border-color:#fecdd3 !important; color:#881337 !important; }
+        #result-box[class*="emerald-950"] { background:#f0f9ff !important; border-color:#bae6fd !important; color:#075985 !important; }
+        #result-box[class*="indigo-950"] { background:#eef2ff !important; border-color:#c7d2fe !important; color:#3730a3 !important; }
+        #result-box .text-slate-500, #result-box .text-slate-400 { color:#64748b !important; }
+        #result-box .text-rose-400 { color:#be123c !important; font-size:14px; }
+        #result-box .text-emerald-400 { color:#0369a1 !important; font-size:14px; }
+        #result-box .text-indigo-400 { color:#4338ca !important; font-size:14px; }
+        #result-box .text-white { color:#0f1b2d !important; }
+        #result-box .text-amber-400 { color:#b45309 !important; }
+        #result-box .border-indigo-900 { border-color:#c7d2fe !important; }
+        @keyframes pop { from { opacity:.0; transform:translateY(6px);} to { opacity:1; transform:none; } }
+        @media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important; } }
+    
+        /* ---------- Motion ---------- */
+        @keyframes rise { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:none; } }
+        @keyframes drift { from { transform:translate(0,0) scale(1); } to { transform:translate(70px,50px) scale(1.18); } }
+        @keyframes ring { 0% { transform:scale(.9); opacity:.8; } 100% { transform:scale(1.45); opacity:0; } }
+        @keyframes marquee { to { transform:translateX(-50%); } }
+        @keyframes sweep { to { left:115%; } }
+        @keyframes shake { 0%,100% { transform:none; } 20% { transform:translateX(-6px); } 40% { transform:translateX(6px); } 60% { transform:translateX(-4px); } 80% { transform:translateX(3px); } }
+        @keyframes glow { from { box-shadow:0 0 0 0 rgba(244,63,94,.35); } to { box-shadow:0 0 0 18px rgba(244,63,94,0); } }
+        @keyframes flash { 0% { transform:scale(1.25); color:#4f46e5; } 100% { transform:none; } }
+        .blob { position:fixed; border-radius:9999px; filter:blur(80px); opacity:.5; z-index:-1; pointer-events:none; animation:drift 16s ease-in-out infinite alternate; }
+        header { animation:rise .7s both; }
+        section.hero { animation:rise .7s .1s both; }
+        .ticker { animation:rise .7s .18s both; }
+        main > div:nth-child(1) { animation:rise .8s .26s both; }
+        main > div:nth-child(2) { animation:rise .8s .38s both; }
+        footer { animation:rise .8s .5s both; }
+        .logo { position:relative; }
+        .logo::after { content:""; position:absolute; inset:-3px; border-radius:18px; border:2px solid rgba(99,102,241,.55); animation:ring 2.4s ease-out infinite; }
+        .ticker { overflow:hidden; border-radius:9999px; border:1px solid var(--line); background:rgba(255,255,255,.7); backdrop-filter:blur(6px); }
+        .ticker-track { display:flex; width:max-content; gap:2.5rem; padding:.7rem 1.25rem; animation:marquee 32s linear infinite; }
+        .ticker:hover .ticker-track { animation-play-state:paused; }
+        .ticker-track span { font-size:.8rem; font-weight:600; color:#475569; white-space:nowrap; display:flex; align-items:center; gap:.5rem; }
+        .ticker-track span::before { content:""; width:6px; height:6px; border-radius:9999px; background:#f43f5e; }
+        .shine { position:relative; overflow:hidden; }
+        .shine::after { content:""; position:absolute; top:0; bottom:0; left:-60%; width:40%; background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent); transform:skewX(-20deg); transition:left .6s; }
+        .shine:hover::after { left:130%; }
+        #result-box { position:relative; overflow:hidden; }
+        #result-box.sweep::after { content:""; position:absolute; top:0; bottom:0; left:-45%; width:40%; background:linear-gradient(90deg,transparent,rgba(255,255,255,.8),transparent); animation:sweep .9s ease-out forwards; }
+        #result-box[class*="rose-950"] { animation:pop .35s ease, shake .5s ease, glow 1s ease-out; }
+        #result-box > div { animation:rise .5s both; }
+        #result-box > div:nth-child(2) { animation-delay:.08s; }
+        #result-box > div:nth-child(3) { animation-delay:.16s; }
+        #result-box > div:nth-child(4) { animation-delay:.24s; }
+        #metric-latency.flash { display:inline-block; animation:flash .6s ease-out; }
+</style>
 </head>
-<body class="min-h-screen flex flex-col justify-between p-4 md:p-8 selection:bg-indigo-500 selection:text-white">
+<body class="min-h-screen flex flex-col p-4 md:p-8">
+    <div class="blob" style="width:380px;height:380px;background:#a5b4fc;top:-80px;right:-60px"></div>
+    <div class="blob" style="width:340px;height:340px;background:#bae6fd;bottom:5%;left:-90px;animation-delay:-6s"></div>
+    <div class="blob" style="width:260px;height:260px;background:#ddd6fe;top:45%;right:25%;animation-delay:-11s"></div>
 
-    <!-- Top Navigation Header -->
-    <header class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 pb-6 border-b border-slate-800/80">
-        <div class="flex items-center gap-3.5">
-            <div class="relative flex items-center justify-center w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-lg shadow-indigo-500/25">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg>
-                <span class="absolute -top-1 -right-1 flex h-3 w-3">
-                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                  <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
-                </span>
+
+    <header class="max-w-6xl w-full mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+        <div class="flex items-center gap-3">
+            <div class="logo w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-800 flex items-center justify-center text-white shadow-lg shadow-indigo-700/25">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg>
             </div>
             <div>
-                <div class="flex items-center gap-2.5">
-                    <h1 class="text-xl font-bold tracking-tight text-white">LFK Security Kernel</h1>
-                    <span class="text-[11px] bg-indigo-500/10 text-indigo-400 font-mono px-2.5 py-0.5 rounded-full border border-indigo-500/20 font-semibold">v1.0.4-wasm</span>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-xl font-extrabold tracking-tight">LFK Security Kernel</h1>
+                    <span class="text-[11px] bg-indigo-50 text-indigo-700 font-mono px-2 py-0.5 rounded-md border border-indigo-200">v1.0.4-wasm</span>
                 </div>
-                <p class="text-xs text-slate-400">Zero-Heap On-Device Financial Coercion Defense Engine</p>
+                <p class="text-sm text-slate-500">On-device protection from digital arrest scams and forced UPI transfers</p>
             </div>
         </div>
-        <div id="engine-status" class="flex items-center space-x-2 text-xs font-semibold px-4 py-2 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-sm backdrop-blur-md">
-            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+        <div id="engine-status" class="flex items-center space-x-2 text-xs font-semibold px-3.5 py-2 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+            <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
             <span>Initializing C++ WASM Core...</span>
         </div>
     </header>
 
-    <!-- Main Content Grid -->
+    <section class="hero max-w-6xl w-full mx-auto mb-6">
+        <h2 class="text-3xl md:text-4xl font-extrabold tracking-tight max-w-2xl leading-tight">Stops coercion scams on the phone itself, before money moves.</h2>
+        <p class="mt-3 text-slate-600 max-w-xl leading-relaxed">Paste any message below and watch the engine judge it in microseconds. No personal financial data ever leaves the device.</p>
+    </section>
+    <div class="ticker max-w-6xl w-full mx-auto mb-8"><div class="ticker-track" aria-label="Scam types the engine detects"><span>Digital arrest calls</span><span>Fake CBI and court notices</span><span>UPI PIN phishing</span><span>Remote-access app tricks</span><span>Fake KYC links</span><span>Video call extortion</span><span>Job registration fee scams</span><span>Cashback refund traps</span><span>Digital arrest calls</span><span>Fake CBI and court notices</span><span>UPI PIN phishing</span><span>Remote-access app tricks</span><span>Fake KYC links</span><span>Video call extortion</span><span>Job registration fee scams</span><span>Cashback refund traps</span></div></div>
+
+
     <main class="max-w-6xl w-full mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow">
-        
-        <!-- Left Column: Telemetry & Explainer Cards -->
+
         <div class="lg:col-span-4 space-y-6">
-            
-            <!-- Live Kernel Status Card -->
-            <div class="glass-panel rounded-2xl p-6 shadow-2xl relative overflow-hidden">
-                <div class="absolute -right-10 -top-10 w-32 h-32 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none"></div>
-                <h2 class="text-xs font-mono uppercase tracking-widest text-indigo-400 font-semibold mb-5 flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span> LIVE KERNEL STATUS
+
+            <div class="card p-6">
+                <h2 class="text-sm font-bold mb-4 flex items-center gap-2">
+                    <span class="relative flex w-2.5 h-2.5"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-60"></span><span class="relative inline-flex rounded-full w-2.5 h-2.5 bg-sky-500"></span></span>
+                    Live kernel status
                 </h2>
-                <div class="space-y-3.5 text-xs font-mono">
-                    <div class="flex justify-between items-center py-2.5 border-b border-slate-800/80">
-                        <span class="text-slate-400">Memory Usage</span>
-                        <span class="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">0 Bytes (Zero-Heap)</span>
+                <div class="text-sm">
+                    <div class="flex justify-between items-center py-3 border-b border-slate-100">
+                        <span class="text-slate-500">Memory usage</span>
+                        <span class="text-sky-700 font-bold">0 Bytes (Zero-Heap)</span>
                     </div>
-                    <div class="flex justify-between items-center py-2.5 border-b border-slate-800/80">
-                        <span class="text-slate-400">Total Test Library</span>
-                        <span class="text-indigo-300 font-bold">50 Real-World Vectors</span>
+                    <div class="flex justify-between items-center py-3 border-b border-slate-100">
+                        <span class="text-slate-500">Total test library</span>
+                        <span class="text-indigo-700 font-bold">50 Real-World Vectors</span>
                     </div>
-                    <div class="flex justify-between items-center py-2.5 border-b border-slate-800/80">
-                        <span class="text-slate-400">Last Execution Latency</span>
-                        <span id="metric-latency" class="text-amber-400 font-bold">-- µs</span>
+                    <div class="flex justify-between items-center py-3 border-b border-slate-100">
+                        <span class="text-slate-500">Last execution latency</span>
+                        <span id="metric-latency" class="text-amber-700 font-bold font-mono">-- µs</span>
                     </div>
-                    <div class="flex justify-between items-center pt-1">
-                        <span class="text-slate-400">Device Protection</span>
-                        <span class="text-emerald-400 font-bold flex items-center gap-1.5">
-                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ACTIVE
-                        </span>
+                    <div class="flex justify-between items-center py-3">
+                        <span class="text-slate-500">Device protection</span>
+                        <span class="text-xs font-bold text-sky-700 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-full">ACTIVE</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Reviewer Pitch Explainer -->
-            <div class="glass-panel rounded-2xl p-6 border-l-4 border-l-indigo-500 shadow-2xl relative">
-                <h3 class="text-xs font-mono uppercase tracking-wider text-indigo-400 font-bold mb-2.5">How to Explain This to Reviewers</h3>
-                <p class="text-xs text-slate-300 leading-relaxed italic">
-                    "LFK acts like an invisible shield on the user's phone. When a scammer tries a Digital Arrest threat or forces a UPI transfer, LFK catches it instantly on-device within microseconds without sending personal financial data to any cloud server."
-                </p>
+            <div class="card p-6">
+                <h3 class="text-sm font-bold mb-4">How it protects you</h3>
+                <ol class="space-y-4 text-sm">
+                    <li class="flex gap-3"><span class="shrink-0 w-7 h-7 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-xs">1</span><span class="text-slate-600 leading-relaxed"><b class="text-slate-900">A message arrives</b> by SMS, WhatsApp or bank alert.</span></li>
+                    <li class="flex gap-3"><span class="shrink-0 w-7 h-7 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-xs">2</span><span class="text-slate-600 leading-relaxed"><b class="text-slate-900">The on-device engine reads it</b> in microseconds, with no cloud round trip.</span></li>
+                    <li class="flex gap-3"><span class="shrink-0 w-7 h-7 rounded-full bg-indigo-50 text-indigo-700 font-bold flex items-center justify-center text-xs">3</span><span class="text-slate-600 leading-relaxed"><b class="text-slate-900">Threats are isolated</b> and genuine alerts pass straight through.</span></li>
+                </ol>
+            </div>
+
+            <div class="rounded-[20px] p-6 bg-gradient-to-br from-indigo-700 via-indigo-800 to-violet-900 text-white shadow-xl shadow-indigo-900/20">
+                <h3 class="text-sm font-bold mb-2 text-indigo-100">The one-line pitch</h3>
+                <p class="text-sm leading-relaxed text-indigo-50">LFK acts like an invisible shield on the user's phone. When a scammer tries a Digital Arrest threat or forces a UPI transfer, LFK catches it instantly on-device within microseconds, without sending personal financial data to any cloud server.</p>
             </div>
 
         </div>
 
-        <!-- Right Column: Threat Test Bench -->
-        <div class="lg:col-span-8 glass-panel rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col justify-between relative">
+        <div class="lg:col-span-8 card p-6 md:p-8 flex flex-col justify-between">
             <div>
-                <div class="flex justify-between items-center mb-6 pb-4 border-b border-slate-800/80">
-                    <h2 class="text-xs font-mono uppercase tracking-widest text-indigo-400 font-bold flex items-center gap-2">
-                        <span class="w-2 h-2 rounded-full bg-indigo-500"></span> REAL-TIME THREAT SCENARIO TEST BENCH
-                    </h2>
-                    <span class="text-[10px] font-mono text-slate-400 bg-slate-800/80 px-2.5 py-1 rounded-md border border-slate-700/50">C++ Core Powered</span>
+                <div class="flex justify-between items-center mb-6">
+                    <div>
+                        <h2 class="text-lg font-extrabold tracking-tight">Threat scenario test bench</h2>
+                        <p class="text-sm text-slate-500">Try a preset or type your own message.</p>
+                    </div>
+                    <span class="text-[11px] font-mono text-slate-500 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md">C++ core</span>
                 </div>
 
-                <!-- Scenario Dropdown -->
                 <div class="mb-5">
-                    <label for="scenario-select" class="block text-xs font-mono text-slate-300 mb-2 font-medium">Select Pre-configured Scenario (Shortcut):</label>
-                    <select id="scenario-select" onchange="loadScenario()" class="field-dark w-full p-3.5 text-xs font-mono text-slate-200 rounded-xl cursor-pointer">
-                        <option value="15">🟢 [Safe] Standard Salary Credit Alert</option>
-                        <option value="16">🟢 [Safe] Card POS Transaction Swipe</option>
-                        <option value="0">🚨 [Threat] Digital Arrest Extortion (CBI Notice)</option>
-                        <option value="1">🚨 [Threat] Supreme Court Asset Freeze Threat</option>
-                        <option value="3">🚨 [Threat] Active Video Call Coerced Transfer</option>
-                        <option value="35">ℹ️ [Casual] Non-Financial Text</option>
+                    <label for="scenario-select" class="block text-sm font-semibold mb-2">Choose a preset scenario</label>
+                    <select id="scenario-select" onchange="loadScenario()" class="field w-full p-3.5 text-sm text-slate-700 cursor-pointer">
+                        <option value="15">🟢 Safe: Standard salary credit alert</option>
+                        <option value="16">🟢 Safe: Card POS transaction swipe</option>
+                        <option value="0">🚨 Threat: Digital arrest extortion (CBI notice)</option>
+                        <option value="1">🚨 Threat: Supreme Court asset freeze threat</option>
+                        <option value="3">🚨 Threat: Active video call coerced transfer</option>
+                        <option value="35">ℹ️ Casual: Non-financial text</option>
                     </select>
                 </div>
 
-                <!-- Input Textarea -->
                 <div class="mb-6">
-                    <label for="sms-input" class="block text-xs font-mono text-slate-300 mb-2 font-medium">Live Notification Payload Input (Type or Edit Freely):</label>
-                    <textarea id="sms-input" rows="4" class="field-dark w-full p-3.5 text-xs font-mono text-slate-100 rounded-xl leading-relaxed resize-none" placeholder="Type or paste any custom SMS, WhatsApp, or bank notification text here..."></textarea>
+                    <label for="sms-input" class="block text-sm font-semibold mb-2">Notification message</label>
+                    <textarea id="sms-input" rows="4" class="field w-full p-3.5 text-[13px] font-mono text-slate-800 leading-relaxed" placeholder="Type or paste any custom SMS, WhatsApp, or bank notification text here..."></textarea>
                 </div>
 
-                <!-- Action Buttons -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mb-6">
-                    <button onclick="parseSMS()" class="btn-primary text-white text-xs font-mono font-bold px-5 py-3.5 rounded-xl shadow-lg cursor-pointer flex items-center justify-center gap-2">
-                        <span>Test Single Message</span>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+                    <button onclick="parseSMS()" class="btn shine bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-bold px-4 py-3.5 rounded-xl shadow-lg shadow-indigo-700/20 cursor-pointer">
+                        Test single message
                     </button>
-                    <button onclick="runBatchTest()" class="btn-secondary text-slate-200 text-xs font-mono font-bold px-5 py-3.5 rounded-xl cursor-pointer flex items-center justify-center gap-2">
-                        <span class="text-emerald-400">⚡</span>
-                        <span>Run Batch Test (50 Messages)</span>
+                    <button onclick="runBatchTest()" class="btn bg-white hover:bg-slate-50 text-slate-800 text-sm font-bold px-4 py-3.5 rounded-xl border border-slate-300 cursor-pointer flex items-center justify-center gap-1.5">
+                        <span>⚡ Run batch test (50 messages)</span>
                     </button>
                 </div>
             </div>
 
-            <!-- Output Diagnostic Box -->
-            <div id="result-box" class="p-4 rounded-xl bg-slate-950/80 border border-slate-800/80 text-xs font-mono text-slate-400 transition-all duration-300">
+            <div id="result-box" class="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono text-slate-400">
                 // Click "Test Single Message" to evaluate your custom input, or "Run Batch Test" to simulate scanning 50 real-world payloads...
             </div>
         </div>
 
     </main>
 
-    <!-- Footer Page Status -->
-    <footer class="max-w-6xl w-full mx-auto mt-8 pt-5 border-t border-slate-800/80 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs font-mono text-slate-500">
-        <div>LFK SDK Core Engine — WebAssembly Browser Module</div>
-        <div>Startup Gujarat / SISFS Demonstration Unit</div>
+    <footer class="max-w-6xl w-full mx-auto mt-10 pt-5 border-t border-slate-200 flex flex-col sm:flex-row justify-between gap-1 text-xs text-slate-500">
+        <div>LFK SDK Core Engine: WebAssembly browser module</div>
+        <div>Startup Gujarat / SISFS demonstration unit</div>
     </footer>
 
     <!-- WASM Engine Script Initialization -->
@@ -280,7 +279,7 @@
             isEngineReady = true;
             const statusEl = document.getElementById('engine-status');
             if (statusEl) {
-                statusEl.className = "flex items-center space-x-2 text-xs px-4 py-2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold backdrop-blur-md";
+                statusEl.className = "flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
                 statusEl.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>WASM Engine Active</span>`;
             }
             loadScenario();
@@ -309,28 +308,28 @@
             const isBankNotification = lowerText.includes('debited') || lowerText.includes('credited') || lowerText.includes('a/c');
 
             if (isThreat) {
-                box.className = "mt-6 p-4 rounded-xl bg-rose-950/30 border border-rose-500/40 text-xs font-mono text-rose-300 space-y-1.5 animate-pop";
+                box.className = "mt-6 p-4 rounded-xl bg-rose-950/20 border border-rose-500/30 text-xs font-mono text-rose-300 space-y-1.5";
                 box.innerHTML = `
                     <div class="text-rose-400 font-bold mb-2">🚨 THREAT INTERCEPTED (Active Shield Engaged)</div>
-                    <div><span class="text-slate-400">PAYLOAD EVALUATED:</span> "${inputText}"</div>
-                    <div><span class="text-slate-400">KERNEL ACTION:</span> Coercion Threat Intercepted -> Local Isolation Triggered</div>
-                    <div><span class="text-slate-400">LATENCY:</span> ${latency} µs (Zero-Heap Guard)</div>
+                    <div><span class="text-slate-500">PAYLOAD EVALUATED:</span> "${inputText}"</div>
+                    <div><span class="text-slate-500">KERNEL ACTION:</span> Coercion Threat Intercepted -> Local Isolation Triggered</div>
+                    <div><span class="text-slate-500">LATENCY:</span> ${latency} µs (Zero-Heap Guard)</div>
                 `;
             } else if (isBankNotification) {
-                box.className = "mt-6 p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/40 text-xs font-mono text-emerald-300 space-y-1.5 animate-pop";
+                box.className = "mt-6 p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 text-xs font-mono text-emerald-300 space-y-1.5";
                 box.innerHTML = `
                     <div class="text-emerald-400 font-bold mb-2">✓ TRANSACTION VERIFIED SAFE (${latency} µs)</div>
-                    <div><span class="text-slate-400">PAYLOAD EVALUATED:</span> "${inputText}"</div>
-                    <div><span class="text-slate-400">PARSED TYPE:</span> ${result.type || 'DEBIT/CREDIT'}</div>
-                    <div><span class="text-slate-400">STATUS:</span> PASSED_TO_USER_APP</div>
+                    <div><span class="text-slate-500">PAYLOAD EVALUATED:</span> "${inputText}"</div>
+                    <div><span class="text-slate-500">PARSED TYPE:</span> ${result.type || 'DEBIT/CREDIT'}</div>
+                    <div><span class="text-slate-500">STATUS:</span> PASSED_TO_USER_APP</div>
                 `;
             } else {
-                box.className = "mt-6 p-4 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 space-y-1.5 animate-pop";
+                box.className = "mt-6 p-4 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-300 space-y-1.5";
                 box.innerHTML = `
                     <div class="text-indigo-400 font-bold mb-2">ℹ️ NON-FINANCIAL MESSAGE IGNORED</div>
-                    <div><span class="text-slate-400">PAYLOAD EVALUATED:</span> "${inputText}"</div>
-                    <div><span class="text-slate-400">KERNEL ACTION:</span> Standard message. No coercion or financial threat detected.</div>
-                    <div><span class="text-slate-400">LATENCY:</span> ${latency} µs</div>
+                    <div><span class="text-slate-500">PAYLOAD EVALUATED:</span> "${inputText}"</div>
+                    <div><span class="text-slate-500">KERNEL ACTION:</span> Standard message. No coercion or financial threat detected.</div>
+                    <div><span class="text-slate-500">LATENCY:</span> ${latency} µs</div>
                 `;
             }
         }
@@ -360,16 +359,16 @@
 
             document.getElementById('metric-latency').innerText = latency + ' ms (50 Msgs)';
             const box = document.getElementById('result-box');
-            box.className = "mt-6 p-4 rounded-xl bg-indigo-950/40 border border-indigo-500/50 text-xs font-mono text-indigo-200 space-y-2 animate-pop";
+            box.className = "mt-6 p-4 rounded-xl bg-indigo-950/30 border border-indigo-500/40 text-xs font-mono text-indigo-200 space-y-2";
             box.innerHTML = `
                 <div class="text-indigo-400 font-bold text-sm mb-1">⚡ 50-MESSAGE REAL-WORLD BATCH TEST COMPLETE</div>
-                <div class="grid grid-cols-2 gap-2 py-1 border-b border-indigo-900/60">
+                <div class="grid grid-cols-2 gap-2 py-1 border-b border-indigo-900">
                     <span class="text-slate-400">Total Scanned:</span> <span class="text-white font-bold">50 Payload Vectors</span>
                 </div>
-                <div class="grid grid-cols-2 gap-2 py-1 border-b border-indigo-900/60">
+                <div class="grid grid-cols-2 gap-2 py-1 border-b border-indigo-900">
                     <span class="text-slate-400">Scams Intercepted:</span> <span class="text-rose-400 font-bold">${threatsFound} Blocked (Digital Arrest / Extortion)</span>
                 </div>
-                <div class="grid grid-cols-2 gap-2 py-1 border-b border-indigo-900/60">
+                <div class="grid grid-cols-2 gap-2 py-1 border-b border-indigo-900">
                     <span class="text-slate-400">Safe Messages Passed:</span> <span class="text-emerald-400 font-bold">${safeFound} Verified (Bank Alerts + Chats)</span>
                 </div>
                 <div class="grid grid-cols-2 gap-2 pt-1">
@@ -377,6 +376,21 @@
                 </div>
             `;
         }
+    </script>
+    <!-- Motion helpers (observe only; do not alter engine logic) -->
+    <script>
+        (function () {
+            const box = document.getElementById('result-box');
+            const metric = document.getElementById('metric-latency');
+            if (box) new MutationObserver(function () {
+                box.style.animation = 'none'; void box.offsetWidth; box.style.animation = '';
+                box.classList.remove('sweep'); void box.offsetWidth; box.classList.add('sweep');
+                setTimeout(function () { box.classList.remove('sweep'); }, 1000);
+            }).observe(box, { childList: true });
+            if (metric) new MutationObserver(function () {
+                metric.classList.remove('flash'); void metric.offsetWidth; metric.classList.add('flash');
+            }).observe(metric, { childList: true });
+        })();
     </script>
 </body>
 </html>
